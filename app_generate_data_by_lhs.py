@@ -6,7 +6,6 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 plt.rcParams['font.size'] = 14 # グラフの基本フォントサイズの設定
 st.set_option('deprecation.showPyplotGlobalUse', False)
-from io import BytesIO
 
 st.title("ラテン超方格法によるデータの生成")
 
