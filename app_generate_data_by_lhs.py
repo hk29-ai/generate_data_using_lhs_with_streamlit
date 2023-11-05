@@ -1,4 +1,5 @@
 import streamlit as st
+from itertools import product
 import lhsmdu
 import numpy as np
 import pandas as pd
@@ -6,86 +7,158 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 plt.rcParams['font.size'] = 14 # グラフの基本フォントサイズの設定
 st.set_option('deprecation.showPyplotGlobalUse', False)
-
-st.title("ラテン超方格法によるデータの生成")
-
-# 作成するサンプリング数
-sampling_num = st.number_input('生成するサンプル数を入力して下さい。直接手入力できます。', step=1, format="%d")
-st.write('設定されたサンプル数：', sampling_num)
-
-# 因子と上下限を辞書で作成
-factor_dict = {
-    "height":(50, 200),
-    "width":(0.06, 0.1),
-    "density":(1e15, 9e15),
-    "temp":(-50, 250)
-}
+import datetime
+now = datetime.datetime.now()
+now = now.strftime("%y%m%d")
 
 
-# 因子名をリストで作成
-column_list = []
-for k in factor_dict.keys():
-    column_list.append(k)
+def generate_doe_func():
+    st.write('はじめに因子名を入力します。次に、各因子の値を入力します。')
+
+    # 最初に列名を入力
+    column_names = st.text_input('作成する因子名を複数入力してください（カンマ区切り。例：A,B, C）')
+    columns = [name.strip() for name in column_names.split(',')]
+
+    # 空の辞書を作成
+    input_params = {col: [] for col in columns}
+
+    # 各列名に対するデータ入力
+    for col in columns:
+        input_data = st.text_input(f'因子{col}のデータを入力してください（カンマ区切り。例：10, 15, 20, 25）')
+        input_params[col] = [x.strip() for x in input_data.split(',')]
+
+    # データが入力されると随時反映
+    if any(input_params):
+        # テーブルの表示
+        st.write('入力されている値', input_params)
+
+        # 各キーのバリューの組み合わせを生成
+        combinations = list(product(*input_params.values()))
+
+        # データフレームを作成
+        df = pd.DataFrame(combinations, columns=input_params.keys())
+        st.write(len(df), df)
+
+        # ダウンロードボタンの追加
+        csv_file = df.to_csv(index=False)
+
+        download_button = st.download_button(
+            label = "データをダウンロード",
+            data = csv_file,
+            file_name = "doe.csv",
+            key = "download_button"
+        )
+
+class RandomSampler:
+    # インスタンスの生成
+    def __init__(self, factors, sampling_num, save_file_name, plot_color):
+        self.factors = factors # 入力データ
+        self.factors_column_names = list(factors.keys()) # 因子名をリスト化
+        self.sampling_num = sampling_num # 生成するサンプル数
+        self.save_file_name = save_file_name # 保存するファイル名
+        self.plot_color = plot_color # グラフにプロットする点の色
+
+    # データ生成
+    def generate_random_data(self, random_data):
+        # データの逆正規化
+        fixed_data_np = self._normalize_data(random_data)
+        
+        # pandasデータフレームにする
+        random_df = pd.DataFrame(fixed_data_np.T, columns=self.factors_column_names)
+        
+        # csvファイルへ出力する
+        random_df.to_csv(f"{self.save_file_name}.csv", sep=",", index=False, encoding="utf-8")
+        
+        # グラフへプロット
+        self.plot_matrix_scatter(random_df)
+        
+        return random_df
+
+    # データの逆正規化。生成されたデータは区間0～1の乱数データのため、指定した最小値～最大値の区間へ変換する
+    def _normalize_data(self, data):
+        for i, key in enumerate(self.factors_column_names):
+            my_min, my_max = self.factors[key]
+            data[i] = ((my_max - my_min) * data[i] + my_min)
+        return np.array(data)
+
+    # 行列散布図
+    def plot_matrix_scatter(self, df):
+        sns.set(style="ticks", font_scale=1.2, palette=self.plot_color, color_codes=True)
+        ax = sns.pairplot(df, diag_kind="hist")
+        ax.fig.suptitle(self.save_file_name)
+        ax.fig.subplots_adjust(top=0.9)
+        st.pyplot(ax)
+
+# ラテン超方格法によるデータ生成
+class LatinHypercube(RandomSampler):
+    def __init__(self, factors, sampling_num, save_file_name, plot_color):
+        super().__init__(factors, sampling_num, save_file_name, plot_color)
+
+    def generate_samples(self):
+        latin_hypercube = lhsmdu.sample(len(self.factors), self.sampling_num)
+        return self.generate_random_data(latin_hypercube)
 
 
-# 乱数データ区間0～1のを指定した最小値～最大値の区間へ変換する関数
-def adjust_data_func(_column_list, _random_np):
-    for i, key in enumerate(_column_list):
-        _min, _max = factor_dict[key]
-        _random_np[i] = ((_max - _min) * _random_np[i] + _min)
-    _fixed_randam_np = np.array(_random_np)
-
-    return _fixed_randam_np
-
-
-# ラテン超方格法
-def latin_hypercube_func(_factors, _column_list, _sampling_num):
-    # ライブラリでデータを生成
-    _data = lhsmdu.sample(len(_factors), _sampling_num)
-    
-    # 作成したデータは0～1区間のため、指定した最小値～最大値の区間へ変換する
-    _fixed_data_np = adjust_data_func(_column_list, _data)
-    
-    # pandasデータフレーム形式へ変換
-    _df = pd.DataFrame(_fixed_data_np.T)
-    
-    # 列名を設定
-    _df.columns = _column_list
-    
-    return _df
-    
-
-# 行列散布図を作成する関数
-def plot_matrix_scatter_func(_label, _df, _color):
-    sns.set(style = "ticks", font_scale = 1.2, palette = _color, color_codes = True)
-    ax = sns.pairplot(_df,
-                      diag_kind="hist"
-                      )
-    ax.fig.suptitle(_label) #, fontsize=12)
-    ax.fig.subplots_adjust(top = 0.9)
-
-    return ax
-
-# csv形式へ変換する関数
-def convert_df(_df):
-    return _df.to_csv(index=False).encode('utf-8')
-
-
-if st.button('実行', key='my_button1', help=''):
-    # データの生成
-    df = latin_hypercube_func(factor_dict, column_list, sampling_num)
-    st.write('生成されたデータ', df)
-    
-    # データを可視化のためにグラフを作成
-    fig = plot_matrix_scatter_func("latin_hypercube", df, "autumn")
-    st.pyplot(fig)
-    
-    # データをcsvへ保存
-    _csv = convert_df(df)
-    st.download_button(
-        label = "CSVファイルのダウンロード",
-        data = _csv,
-        file_name = 'latin_hypercube.csv',
-        mime = 'text/csv'
+def main():
+    st.set_page_config(
+        page_title = "DOEを作成するwebアプリ",
+        page_icon = "🧊",
+        layout = "centered",
+        initial_sidebar_state = "expanded"
     )
+
+    st.subheader('DOEを作成するwebアプリ')
+
+    # 背景色を変更した説明文
+    description = """
+    <div style="background-color: #87CEFA; padding: 10px; border-radius: 10px;">
+        <p style="font-weight: normal;">すべてをリセットしたい場合はブラウザをリロード下さい</p>
+    </div>
+    """
+    st.markdown(description, unsafe_allow_html=True)
+
+    read_method = st.radio(label = 'データ生成の手法を選択ください',
+                           options = ('DOE（格子状にデータ生成）', 'LHS（生成数を指定して均等にデータ生成）'),
+                           index = 0,
+                           horizontal = True,
+                           )
+    
+    if read_method == 'DOE（格子状にデータ生成）':
+        generate_doe_func()
+    else:
+        # 最初に列名を入力
+        column_names = st.text_input('作成する因子名を複数入力してください（カンマ区切り。例：A,B, C）')
+        columns = [name.strip() for name in column_names.split(',')]
+        
+        # 空の辞書を作成
+        input_params = {col: [] for col in columns}
+
+        # 各列名に対するデータ入力
+        st.write('因子と上下限を辞書で作成')
+        for col in columns:
+            input_data = st.text_input(f'因子{col}の下限と上限データを入力してください（カンマ区切り。例：100, 200）')
+            input_params[col] = [x.strip() for x in input_data.split(',')]
+        
+        
+        # 作成するサンプリング数
+        sampling_num = st.number_input('生成するサンプル数を入力して下さい。直接手入力できます。',
+                                       min_value=100, value=200, step=10, format="%d")
+        st.write('設定されたサンプル数：', sampling_num)
+        
+        latin_hypercube  = LatinHypercube(input_params, sampling_num, f'{now}_latin_hypercube', 'autumn')
+        df2 = latin_hypercube.generate_samples()
+        st.write(df2)
+
+        # ダウンロードボタンの追加
+        csv_file = df2.to_csv(index=False)
+
+        download_button = st.download_button(
+            label = "データをダウンロード",
+            data = csv_file,
+            file_name = "lhs.csv",
+            key = "download_button"
+        )
+
+if __name__ == "__main__":
+    main()
     
