@@ -32,22 +32,23 @@ def generate_doe_func():
         # テーブルの表示
         st.write('入力されている値', input_params)
 
-        # 各キーのバリューの組み合わせを生成
-        combinations = list(product(*input_params.values()))
+        if st.button('実行'):
+            # 各キーのバリューの組み合わせを生成
+            combinations = list(product(*input_params.values()))
 
-        # データフレームを作成
-        df = pd.DataFrame(combinations, columns=input_params.keys())
-        st.write(len(df), df)
+            # データフレームを作成
+            df = pd.DataFrame(combinations, columns=input_params.keys())
+            st.write(f'水準数は{len(df)}です。', df)
 
-        # ダウンロードボタンの追加
-        csv_file = df.to_csv(index=False)
+            # ダウンロードボタンの追加
+            csv_file = df.to_csv(index=False)
 
-        download_button = st.download_button(
-            label = "データをダウンロード",
-            data = csv_file,
-            file_name = "doe.csv",
-            key = "download_button"
-        )
+            download_button = st.download_button(
+                label = "データをダウンロード",
+                data = csv_file,
+                file_name = "doe.csv",
+                key = "download_button"
+            )
 
 class RandomSampler:
     # インスタンスの生成
@@ -99,15 +100,55 @@ class LatinHypercube(RandomSampler):
         return self.generate_random_data(latin_hypercube)
 
 
+def generate_lhs_func():
+
+    # 最初に列名を入力
+    column_names = st.text_input('作成する因子名を複数入力してください（カンマ区切り。例：A,B, C）')
+    columns = [name.strip() for name in column_names.split(',')]
+    
+    # 空の辞書を作成
+    input_params = {col: [] for col in columns}
+
+    # 各列名に対するデータ入力
+    st.write('因子と上下限を辞書で作成')
+    for col in columns:
+        input_data = st.text_input(f'因子{col}の下限と上限データを入力してください（カンマ区切り。例：100, 200）')
+        input_params[col] = [x.strip() for x in input_data.split(',')]
+
+    # データが入力されると随時反映
+    if any(input_params):
+    
+        st.write(input_params)
+        
+        # 作成するサンプリング数
+        sampling_num = st.number_input('生成するサンプル数を入力して下さい。直接手入力できます。',
+                                       min_value=100, value=200, step=10, format="%d")
+        st.write('設定されたサンプル数：', sampling_num)
+        
+        if st.button('実行'):
+            latin_hypercube  = LatinHypercube(input_params, sampling_num, f'{now}_latin_hypercube', 'autumn')
+            df2 = latin_hypercube.generate_samples()
+            st.write(df2)
+
+            # ダウンロードボタンの追加
+            csv_file = df2.to_csv(index=False)
+
+            download_button = st.download_button(
+                label = "データをダウンロード",
+                data = csv_file,
+                file_name = "lhs.csv",
+                key = "download_button"
+            )
+
 def main():
     st.set_page_config(
-        page_title = "DOEを作成するwebアプリ",
+        page_title = "水準表を作成するwebアプリ",
         page_icon = "🧊",
         layout = "centered",
         initial_sidebar_state = "expanded"
     )
 
-    st.subheader('DOEを作成するwebアプリ')
+    st.subheader('水準表を作成するwebアプリ')
 
     # 背景色を変更した説明文
     description = """
@@ -126,38 +167,7 @@ def main():
     if read_method == 'DOE（格子状にデータ生成）':
         generate_doe_func()
     else:
-        # 最初に列名を入力
-        column_names = st.text_input('作成する因子名を複数入力してください（カンマ区切り。例：A,B, C）')
-        columns = [name.strip() for name in column_names.split(',')]
-        
-        # 空の辞書を作成
-        input_params = {col: [] for col in columns}
-
-        # 各列名に対するデータ入力
-        st.write('因子と上下限を辞書で作成')
-        for col in columns:
-            input_data = st.text_input(f'因子{col}の下限と上限データを入力してください（カンマ区切り。例：100, 200）')
-            input_params[col] = [x.strip() for x in input_data.split(',')]
-        
-        
-        # 作成するサンプリング数
-        sampling_num = st.number_input('生成するサンプル数を入力して下さい。直接手入力できます。',
-                                       min_value=100, value=200, step=10, format="%d")
-        st.write('設定されたサンプル数：', sampling_num)
-        
-        latin_hypercube  = LatinHypercube(input_params, sampling_num, f'{now}_latin_hypercube', 'autumn')
-        df2 = latin_hypercube.generate_samples()
-        st.write(df2)
-
-        # ダウンロードボタンの追加
-        csv_file = df2.to_csv(index=False)
-
-        download_button = st.download_button(
-            label = "データをダウンロード",
-            data = csv_file,
-            file_name = "lhs.csv",
-            key = "download_button"
-        )
+        generate_lhs_func()
 
 if __name__ == "__main__":
     main()
